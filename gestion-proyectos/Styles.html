@@ -258,6 +258,10 @@
   .help-ic { width: 42px; height: 42px; border-radius: 12px; background: var(--primary-soft); color: var(--primary);
     display: grid; place-items: center; flex-shrink: 0; }
 
+  .gate { max-width: 460px; margin: 40px auto; text-align: center; }
+  .gate h2 { margin: 0 0 8px; } .gate p { margin: 0 0 12px; }
+  .gate .btn.big { width: 100%; }
+  .gated .fab, .gated .tabbar, .gated #nav { visibility: hidden; }
   .fab { position: fixed; right: max(24px, env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     width: 60px; height: 60px; border-radius: 50%; border: 0; background: var(--primary); color: var(--surface);
     box-shadow: 0 6px 18px rgba(20, 40, 120, .35); cursor: pointer; z-index: 25; display: grid; place-items: center; }

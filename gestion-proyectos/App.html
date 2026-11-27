@@ -249,6 +249,7 @@ function toast(msg, err) {
 /* ---------------- Servidor ---------------- */
 function api(fn) {
   const args = Array.prototype.slice.call(arguments, 1);
+  if (window.DB) return window.DB.call(fn, args); // versión Firebase: responde al instante
   return new Promise(function (resolve, reject) {
     let done = false;
     // Si Google tarda, avisar en vez de quedarse "en nada"
@@ -281,7 +282,49 @@ function mutate(fn, args, okMsg, quiet) {
     return false;
   });
 }
+/* --- Versión Firebase: pantallas de inicio de sesión y datos en tiempo real --- */
+function gate(kind, info) {
+  info = info || {};
+  if (kind !== 'cargando' || !S.data) S.data = null;
+  document.body.classList.add('gated');
+  $('#page-title').textContent = cfg('empresa') || 'Gestión de Proyectos';
+  $('#topbar-actions').innerHTML = '';
+  let html;
+  if (kind === 'login') {
+    html = '<h2>Bienvenido</h2><p class="muted">Entra con tu cuenta de Google para ver tus proyectos y tareas.</p>' +
+      (info.error ? '<p class="txt-bad small">' + esc(info.error) + '</p>' : '') +
+      '<button class="btn primary big" data-act="login">' + icon('star', 18) + 'Entrar con Google</button>';
+  } else if (kind === 'sin-acceso') {
+    html = '<h2>Tu cuenta aún no tiene acceso</h2><p>Entraste como <b class="selectable">' + esc(info.email) + '</b>.</p>' +
+      '<p class="muted">Pide al administrador que agregue este correo en <b>Ajustes → Acceso</b> y vuelve a entrar.</p>' +
+      '<div class="row" style="justify-content:center;flex-wrap:wrap"><button class="btn" data-act="logout">Usar otra cuenta</button>' +
+      '<button class="btn primary" data-act="reload">Ya me dieron acceso</button></div>';
+  } else if (kind === 'error') {
+    html = '<h2>No se pudo conectar</h2><p class="txt-bad">' + esc(info.message) + '</p>' +
+      '<div class="row" style="justify-content:center"><button class="btn" data-act="logout">Salir</button><button class="btn primary" data-act="reload">Reintentar</button></div>';
+  } else {
+    html = '<div class="loading">Cargando' + (info.email ? ' datos de ' + esc(info.email) : '') + '…</div>';
+  }
+  $('#view').innerHTML = '<div class="card gate"><div class="card-b">' + html + '</div></div>';
+}
+let renderTimer = null;
+function onLiveData(data) {
+  S.data = data;
+  document.body.classList.remove('gated');
+  // Un cambio de otra persona no debe interrumpir lo que se escribe en un buscador
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(function () {
+    const el = document.activeElement;
+    const k = el && el.dataset ? el.dataset.filter : null;
+    const pos = k && el.selectionStart;
+    render();
+    if (k) { const again = document.querySelector('[data-filter="' + k + '"]'); if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) { /* no aplica */ } } }
+  }, 20);
+}
+window.onDbError = function (msg) { toast(msg, true); };
+
 function load() {
+  if (window.DB) { window.DB.start(onLiveData, gate); return Promise.resolve(); }
   // Datos incrustados por el servidor al abrir la página: se muestra al instante
   if (window.BOOT && window.BOOT.proyectos) { S.data = window.BOOT; window.BOOT = null; render(); return Promise.resolve(); }
   return api('getData').then(function (data) { S.data = data; render(); })
@@ -999,12 +1042,22 @@ function viewAjustes() {
       field({ name: 'moneda', label: 'Moneda principal', type: 'select', options: MONEDAS }, c.moneda) +
       '<div></div>' +
       field({ name: 'etapasPlantilla', label: 'Etapas por defecto para proyectos nuevos (separadas por coma)', type: 'textarea', full: true }, c.etapasPlantilla) +
-      '<div class="full"><button type="submit" class="btn primary">Guardar ajustes</button></div></form></div></div>' +
+      (window.DB ? field({ name: 'hojaUrl', label: 'Enlace a la hoja de Google Sheets de respaldo', full: true, placeholder: 'https://docs.google.com/spreadsheets/d/…', help: 'Aparecerá el botón «Abrir Google Sheets» arriba' }, c.hojaUrl) +
+        (S.data.esAdmin ?
+          field({ name: 'accesos', label: 'Acceso: correos de Google que pueden entrar (uno por línea)', type: 'textarea', full: true,
+            help: 'Solo estas cuentas pueden ver y modificar los datos. Tu correo no se puede quitar.' }, (S.data.accesos || []).join('\n')) +
+          field({ name: 'admins', label: 'Administradores: pueden cambiar quién entra (uno por línea)', type: 'textarea', full: true,
+            help: 'Normalmente solo el dueño o gerente.' }, (S.data.admins || []).join('\n'))
+          : '<div class="full hint">Quién puede entrar lo decide un administrador: ' + esc((S.data.admins || []).join(', ')) + '</div>') : '') +
+      '<div class="full row" style="flex-wrap:wrap"><button type="submit" class="btn primary">Guardar ajustes</button>' +
+      (window.DB ? '<button type="button" class="btn" data-act="logout">Cerrar sesión</button>' : '') + '</div></form></div></div>' +
       '<div class="card narrow" style="margin-top:14px"><div class="card-b small muted">' +
       'Las personas del equipo se agregan en <b>Equipo → Agregar persona</b>.<br><br>' +
+      (window.DB ? 'Los datos se guardan en <b>Firebase</b> (rápido, en tiempo real y funciona sin señal). Una copia se actualiza sola en ' +
+        '<b>Google Sheets</b> cada hora para ver, filtrar y hacer reportes como en Excel.' :
       'Toda la información se guarda en Google Sheets (hojas <b>Proyectos</b>, <b>Etapas</b>, <b>Actividades</b>, <b>Documentos</b>, <b>Personal</b>, ' +
       '<b>Certificaciones</b>, <b>Materiales</b>, <b>Movimientos</b>, <b>Inspecciones</b>, <b>Equipos</b> e <b>Historial</b>) y los archivos en la carpeta de Google Drive ' +
-      '«Gestión de Proyectos - Archivos». Puedes crear tablas dinámicas, gráficos o conectar Looker Studio a esas hojas.' +
+      '«Gestión de Proyectos - Archivos». Puedes crear tablas dinámicas, gráficos o conectar Looker Studio a esas hojas.') +
       '<br><br>Usuario: ' + esc(S.data.usuario || '—') + '</div></div>',
     after: function () {
       $('#cfg-form').addEventListener('submit', function (ev) {
@@ -1475,6 +1528,9 @@ const ACTIONS = {
     else { setYo(id); toast('Hola ' + id + ': tus tareas aparecerán en Inicio'); }
     render();
   },
+  'login': function () { window.DB && window.DB.login(); },
+  'logout': function () { if (window.DB) { setYo(''); window.DB.logout(); } },
+  'reload': function () { location.reload(); },
   'new-proj': function () { formProyecto(null); },
   'edit-proj': function (id) { formProyecto(proj(id)); },
   'del-proj': function (id) {

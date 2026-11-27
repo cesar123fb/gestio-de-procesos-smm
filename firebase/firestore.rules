@@ -1,0 +1,61 @@
+rules_version = '2';
+
+// Reglas de seguridad de Firestore — Gestión de Proyectos
+// Pegar en: Consola de Firebase → Firestore Database → Reglas → Publicar
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    function accesoPath() {
+      return /databases/$(database)/documents/config/acceso;
+    }
+    // ¿El correo está en la lista de acceso (config/acceso.emails)?
+    function allowed() {
+      return signedIn() && exists(accesoPath()) && myEmail() in get(accesoPath()).data.emails;
+    }
+
+    // Lista de correos con acceso y de administradores.
+    // La primera persona que entra la crea con su propio correo y queda como administradora.
+    match /config/acceso {
+      allow read: if allowed();
+      allow create: if signedIn()
+        && request.resource.data.emails == [myEmail()]
+        && request.resource.data.admins == [myEmail()];
+      // Solo un administrador cambia la lista, y no puede quitarse a sí mismo
+      allow update: if allowed()
+        && myEmail() in resource.data.admins
+        && request.resource.data.emails is list && request.resource.data.admins is list
+        && myEmail() in request.resource.data.emails
+        && myEmail() in request.resource.data.admins
+        && request.resource.data.emails.size() <= 200;
+      allow delete: if false;
+    }
+
+    match /config/general {
+      allow read, write: if allowed();
+    }
+
+    // Datos del sistema
+    match /{coleccion}/{id} {
+      allow read, write: if allowed() && coleccion in [
+        'proyectos', 'etapas', 'actividades', 'documentos', 'personal', 'certificaciones',
+        'materiales', 'movimientos', 'inspecciones', 'equipos'
+      ];
+    }
+    // El historial solo se agrega, no se edita ni borra
+    match /historial/{id} {
+      allow read, create: if allowed();
+      allow update, delete: if false;
+    }
+
+    // App anterior (DesignManager Pro): cada usuario solo ve sus propios datos
+    match /artifacts/{appId}/users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
