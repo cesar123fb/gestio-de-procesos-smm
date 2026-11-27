@@ -1,16 +1,33 @@
-# Gestión de Proyectos (Google Sheets + Drive)
+# Gestión de Proyectos — Manufactura y soldadura (Google Sheets + Drive)
 
-Sistema de seguimiento de proyectos que funciona en el celular y en la computadora.
+Sistema de gestión para talleres de metalmecánica, estructuras y soldadura. Funciona en el celular y en la computadora,
+con botones grandes y palabras simples para personal con poca experiencia en sistemas.
 
-- **Proyectos** con código automático (PRY-2026-001), cliente, responsable, fechas, presupuesto y estado.
-- **Etapas de trabajo** (plantilla configurable: Planificación → Cotización → Aprobación → Ejecución → Entrega → Cierre) con avance automático.
-- **Actividades pendientes** con responsable, fecha límite, prioridad y estado; vista de *Vencidas / Hoy / Próximos 7 días*.
-- **Cotizaciones, órdenes de compra y facturas**: subes el archivo (PDF, foto desde el celular, Excel) y sigues su estado
-  (p. ej. OC: Emitida → Confirmada → En proceso → Entregada → Facturada → Pagada). Puedes relacionar una OC con su cotización.
-- **Panel** con indicadores, montos por moneda e **historial** de cambios por proyecto.
-- **Todos los datos quedan en Google Sheets** (hojas `Proyectos`, `Etapas`, `Actividades`, `Documentos`, `Historial`, `Config`)
-  y los archivos en Google Drive (carpeta «Gestión de Proyectos - Archivos», una subcarpeta por proyecto).
-  Así puedes hacer tablas dinámicas, gráficos, filtros o conectar Looker Studio sobre esas hojas.
+**Para el día a día del taller**
+- **Equipo:** cada persona con sus tareas *atrasadas*, *para hoy* y *de esta semana*, en colores. Así se ve de inmediato
+  quién tiene urgencias. Cada trabajador toca su nombre → **«Soy yo»** y ve sus tareas primero al abrir el programa.
+- **Botones simples en cada tarea:** **Empezar**, **Terminé** y **Problema** (falta material, máquina malograda,
+  faltan planos…). El problema aparece como alerta para el supervisor.
+- **Botón +** para registrar rápido: tarea, salida o entrada de material, inspección, documento o proyecto.
+- **Alertas en Inicio:** tareas atrasadas o con problema, soldaduras rechazadas sin reparar, material agotado o con
+  stock bajo, certificaciones de soldador por vencer y mantenimientos atrasados.
+
+**Gestión**
+- **Proyectos / órdenes de trabajo** con etapas de fabricación (Ingeniería y planos → Compra de materiales → Corte →
+  Armado → Soldadura → Acabado y pintura → Control de calidad → Despacho e instalación), avance automático y horas hombre.
+- **Cotizaciones, órdenes de compra, facturas y planos**: subes el archivo (PDF, foto, Excel) y sigues su estado.
+- **Almacén:** materiales (planchas, perfiles, electrodos, gases, discos, EPP…) con stock mínimo, entradas, salidas por
+  proyecto y conteo físico. No permite sacar más de lo que hay.
+- **Calidad:** inspecciones (visual, dimensional, tintes penetrantes, ultrasonido…) con foto. Si sale **Rechazado** u
+  **Observado**, se crea sola la tarea de reparación.
+- **Personal y certificaciones de soldador** (proceso SMAW/GMAW/FCAW/GTAW, norma AWS D1.1 / ASME IX, posición,
+  vencimiento) con aviso 30 días antes.
+- **Máquinas:** soldadoras, plasma, esmeriles, compresores… con estado y mantenimiento programado.
+- **Historial** de cambios por proyecto y sección de **Ayuda** dentro del programa.
+
+Todos los datos quedan en Google Sheets (hojas `Proyectos`, `Etapas`, `Actividades`, `Documentos`, `Personal`,
+`Certificaciones`, `Materiales`, `Movimientos`, `Inspecciones`, `Equipos`, `Historial`, `Config`) y los archivos en
+Google Drive (carpeta «Gestión de Proyectos - Archivos»), listos para tablas dinámicas o Looker Studio.
 
 ## Instalación (10 minutos, sin costo)
 
@@ -38,7 +55,7 @@ Sistema de seguimiento de proyectos que funciona en el celular y en la computado
 
 Si eliges «Ejecutar como: Yo», todo lo que suban otras personas se guarda en *tu* Drive y *tu* hoja,
 y el historial registra el correo de quien hizo cada cambio (cuando Google lo permite).
-Agrega los nombres del equipo en **Ajustes → Responsables** para que aparezcan como sugerencia.
+Registra a tu personal en **Equipo → Agregar persona**; luego cada uno toca su nombre y **«Soy yo»** en su celular.
 
 ## Prueba local (opcional, para desarrollo)
 
@@ -47,3 +64,8 @@ node dev/servidor-local.js --demo   # http://localhost:8080 con datos de ejemplo
 ```
 
 Simula Sheets/Drive en memoria y ejecuta el mismo `Code.gs`. Los archivos subidos quedan en `dev/uploads/`.
+
+`node dev/generar-vista-previa.js vista.html` crea una página independiente con datos de ejemplo (demo sin Google).
+
+> Si ya tenías instalada una versión anterior: pega el código nuevo, ejecuta `setup` una vez (agrega las hojas y columnas
+> nuevas sin borrar datos) y publica una **nueva versión** de la implementación.
