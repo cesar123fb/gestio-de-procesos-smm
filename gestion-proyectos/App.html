@@ -1,0 +1,819 @@
+<script>
+/* ================= GESTIÓN DE PROYECTOS — Interfaz ================= */
+
+const PROJECT_STATES = ['Planificación', 'En curso', 'En pausa', 'Completado', 'Cancelado'];
+const ACT_STATES = ['Pendiente', 'En curso', 'Bloqueada', 'Completada', 'Cancelada'];
+const PRIORIDADES = ['Alta', 'Media', 'Baja'];
+const DOC_TYPES = {
+  'Cotización': ['Borrador', 'Enviada', 'En revisión', 'Aprobada', 'Rechazada'],
+  'Orden de compra': ['Emitida', 'Confirmada', 'En proceso', 'Entregada', 'Facturada', 'Pagada', 'Anulada'],
+  'Factura': ['Emitida', 'Por cobrar', 'Pagada', 'Anulada'],
+  'Otro': ['Vigente', 'Archivado']
+};
+const BAD_DOC = ['Rechazada', 'Anulada'];
+const DONE_DOC = ['Aprobada', 'Pagada', 'Archivado'];
+const MONEDAS = ['PEN', 'USD', 'EUR', 'MXN', 'COP', 'CLP', 'ARS'];
+
+const ICONS = {
+  panel: '<path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>',
+  proyectos: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  pendientes: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  documentos: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+  ajustes: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
+  up: '<path d="M18 15l-6-6-6 6"/>', down: '<path d="M6 9l6 6 6-6"/>',
+  back: '<path d="M15 18l-6-6 6-6"/>', file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+  x: '<path d="M18 6L6 18M6 6l12 12"/>', sheet: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>'
+};
+function icon(name, size) {
+  size = size || 18;
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
+}
+
+const NAV = [
+  { id: 'panel', label: 'Panel' },
+  { id: 'proyectos', label: 'Proyectos' },
+  { id: 'pendientes', label: 'Pendientes' },
+  { id: 'documentos', label: 'Documentos' },
+  { id: 'ajustes', label: 'Ajustes' }
+];
+
+const S = {
+  data: null, view: 'panel', pid: null, ptab: 'etapas', hist: null,
+  f: { pq: '', pestado: 'Activos', aq: '', aproy: '', aresp: '', aest: 'Abiertas', dq: '', dtipo: '', dest: '', dproy: '' }
+};
+
+/* ---------------- Utilidades ---------------- */
+function esc(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function $(sel) { return document.querySelector(sel); }
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function fmtDate(d) {
+  if (!d) return '';
+  const p = String(d).slice(0, 10).split('-');
+  if (p.length < 3) return esc(d);
+  return parseInt(p[2], 10) + ' ' + MESES[parseInt(p[1], 10) - 1] + ' ' + p[0];
+}
+function fmtDateTime(d) { return d ? fmtDate(d) + ' ' + String(d).slice(11, 16) : ''; }
+function fmtMoney(n, cur) {
+  cur = cur || cfg('moneda') || 'PEN';
+  const v = Number(n) || 0;
+  try { return new Intl.NumberFormat('es-PE', { style: 'currency', currency: cur }).format(v); }
+  catch (e) { return cur + ' ' + v.toFixed(2); }
+}
+function fmtTotals(docs) {
+  const by = {};
+  docs.forEach(function (d) { const c = d.moneda || cfg('moneda'); by[c] = (by[c] || 0) + (Number(d.monto) || 0); });
+  const keys = Object.keys(by);
+  if (!keys.length) return fmtMoney(0);
+  return keys.map(function (k) { return fmtMoney(by[k], k); }).join(' · ');
+}
+function addDays(iso, n) {
+  const p = iso.split('-').map(Number);
+  const d = new Date(p[0], p[1] - 1, p[2] + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function cfg(k) { return S.data && S.data.config ? S.data.config[k] : ''; }
+function hoy() { return S.data ? S.data.hoy : new Date().toISOString().slice(0, 10); }
+function isOpen(a) { return a.estado !== 'Completada' && a.estado !== 'Cancelada'; }
+function isOverdue(a) { return isOpen(a) && a.fechaLimite && a.fechaLimite < hoy(); }
+function projActive(p) { return p.estado !== 'Completado' && p.estado !== 'Cancelado'; }
+function proj(id) { return S.data.proyectos.find(function (p) { return p.id === id; }); }
+function stagesOf(pid) {
+  return S.data.etapas.filter(function (e) { return e.proyectoId === pid; })
+    .sort(function (a, b) { return (a.orden || 0) - (b.orden || 0); });
+}
+function actsOf(pid) { return S.data.actividades.filter(function (a) { return a.proyectoId === pid; }); }
+function docsOf(pid) { return S.data.documentos.filter(function (d) { return d.proyectoId === pid; }); }
+function currentStage(pid) {
+  const st = stagesOf(pid);
+  if (!st.length) return null;
+  return st.find(function (e) { return e.estado !== 'Completada'; }) || { nombre: 'Todas completadas', done: true };
+}
+function responsables() {
+  const set = {};
+  String(cfg('responsables') || '').split(',').forEach(function (r) { r = r.trim(); if (r) set[r] = 1; });
+  S.data.actividades.concat(S.data.proyectos).forEach(function (x) { if (x.responsable) set[x.responsable] = 1; });
+  return Object.keys(set).sort();
+}
+function stateClass(s) {
+  if (['Completado', 'Completada', 'Aprobada', 'Pagada', 'Entregada'].indexOf(s) >= 0) return 'ok';
+  if (['Cancelado', 'Cancelada', 'Rechazada', 'Anulada', 'Bloqueada'].indexOf(s) >= 0) return 'bad';
+  if (['En pausa', 'En revisión', 'Por cobrar', 'Enviada', 'Facturada'].indexOf(s) >= 0) return 'warn';
+  if (['En curso', 'Confirmada', 'En proceso', 'Emitida', 'Vigente'].indexOf(s) >= 0) return 'info';
+  return '';
+}
+function pill(s, cls) { return '<span class="pill ' + (cls || stateClass(s)) + '">' + esc(s) + '</span>'; }
+function prioPill(p) { return p === 'Alta' ? pill('Alta', 'bad') : p === 'Baja' ? pill('Baja', '') : ''; }
+function progress(v) {
+  v = Math.max(0, Math.min(100, Number(v) || 0));
+  return '<div class="progress ' + (v === 100 ? 'ok' : '') + '"><span style="width:' + v + '%"></span></div>';
+}
+function toast(msg, err) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'show' + (err ? ' err' : '');
+  clearTimeout(toast._t); toast._t = setTimeout(function () { t.className = ''; }, err ? 4500 : 2200);
+}
+
+/* ---------------- Servidor ---------------- */
+function api(fn) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    const r = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+      reject(e && e.message ? e : new Error(String(e)));
+    });
+    r[fn].apply(r, args);
+  });
+}
+function mutate(fn, args, okMsg) {
+  document.body.classList.add('saving');
+  return api.apply(null, [fn].concat(args)).then(function (data) {
+    S.data = data; S.hist = null;
+    document.body.classList.remove('saving');
+    render();
+    if (okMsg) toast(okMsg);
+    return true;
+  }).catch(function (e) {
+    document.body.classList.remove('saving');
+    toast(e.message || 'Error al guardar', true);
+    return false;
+  });
+}
+function load() {
+  return api('getData').then(function (data) { S.data = data; render(); })
+    .catch(function (e) { $('#view').innerHTML = '<div class="loading">No se pudo cargar: ' + esc(e.message) + '</div>'; });
+}
+
+/* ---------------- Navegación ---------------- */
+function go(view, pid, push) {
+  S.view = view; S.pid = pid || null; S.hist = null;
+  if (view === 'proyecto' && !push) S.ptab = 'etapas';
+  if (push !== false && window.google && google.script && google.script.history) {
+    google.script.history.push({ view: view, pid: pid || '' }, { v: view, p: pid || '' });
+  }
+  render();
+  window.scrollTo(0, 0);
+}
+if (window.google && google.script && google.script.history) {
+  google.script.history.setChangeHandler(function (e) {
+    const st = e.state || {};
+    go(st.view || 'panel', st.pid || null, false);
+  });
+}
+
+/* ---------------- Render general ---------------- */
+function render() {
+  if (!S.data) return;
+  const overdue = S.data.actividades.filter(isOverdue).length;
+  const navHtml = function (cls) {
+    return NAV.map(function (n) {
+      const active = S.view === n.id || (n.id === 'proyectos' && S.view === 'proyecto');
+      const badge = n.id === 'pendientes' && overdue ? '<span class="badge-count">' + overdue + '</span>' : '';
+      return '<button data-act="nav" data-id="' + n.id + '" class="' + (active ? 'active' : '') + '">' +
+        '<span class="ic">' + icon(n.id, cls === 'tab' ? 21 : 18) + '</span><span>' + n.label + '</span>' + badge + '</button>';
+    }).join('');
+  };
+  $('#nav').innerHTML = navHtml('side');
+  $('#tabbar').innerHTML = navHtml('tab');
+  $('#brand-name').textContent = cfg('empresa') || 'Proyectos';
+
+  const views = { panel: viewPanel, proyectos: viewProyectos, proyecto: viewProyecto,
+    pendientes: viewPendientes, documentos: viewDocumentos, ajustes: viewAjustes };
+  const out = (views[S.view] || viewPanel)();
+  $('#page-title').innerHTML = out.title;
+  $('#topbar-actions').innerHTML = out.actions || '';
+  $('#view').innerHTML = out.body;
+  if (out.after) out.after();
+}
+
+function actBtn(act, label, ic, cls, id, extra) {
+  return '<button class="btn ' + (cls || '') + '" data-act="' + act + '"' + (id ? ' data-id="' + esc(id) + '"' : '') +
+    (extra || '') + '>' + (ic ? icon(ic, 16) : '') + '<span class="lbl">' + label + '</span></button>';
+}
+
+/* ---------------- Panel ---------------- */
+function viewPanel() {
+  const d = S.data, h = hoy(), week = addDays(h, 7);
+  const activos = d.proyectos.filter(projActive);
+  const abiertas = d.actividades.filter(isOpen);
+  const vencidas = abiertas.filter(isOverdue);
+  const cotPend = d.documentos.filter(function (x) { return x.tipo === 'Cotización' && (x.estado === 'Enviada' || x.estado === 'En revisión' || x.estado === 'Borrador'); });
+  const ocAbiertas = d.documentos.filter(function (x) { return x.tipo === 'Orden de compra' && x.estado !== 'Pagada' && x.estado !== 'Anulada'; });
+  const factCobrar = d.documentos.filter(function (x) { return x.tipo === 'Factura' && (x.estado === 'Emitida' || x.estado === 'Por cobrar'); });
+
+  const kpis = '<div class="grid kpis">' +
+    kpi('Proyectos activos', activos.length, d.proyectos.length + ' en total', '', 'proyectos') +
+    kpi('Actividades pendientes', abiertas.length, abiertas.filter(function (a) { return a.fechaLimite && a.fechaLimite >= h && a.fechaLimite <= week; }).length + ' vencen esta semana', '', 'pendientes') +
+    kpi('Vencidas', vencidas.length, vencidas.length ? 'requieren atención' : 'todo al día', vencidas.length ? 'bad' : 'ok', 'pendientes') +
+    kpi('Cotizaciones por aprobar', cotPend.length, fmtTotals(cotPend), cotPend.length ? 'warn' : '', 'documentos', 'Cotización') +
+    kpi('Órdenes de compra abiertas', ocAbiertas.length, fmtTotals(ocAbiertas), '', 'documentos', 'Orden de compra') +
+    kpi('Facturas por cobrar', factCobrar.length, fmtTotals(factCobrar), factCobrar.length ? 'warn' : '', 'documentos', 'Factura') +
+    '</div>';
+
+  const urgentes = abiertas.filter(function (a) { return a.fechaLimite && a.fechaLimite <= week; })
+    .sort(function (a, b) { return a.fechaLimite < b.fechaLimite ? -1 : 1; }).slice(0, 12);
+  const urgHtml = '<div class="card"><div class="card-h"><h2>Actividades urgentes</h2>' +
+    '<button class="btn sm ghost" data-act="nav" data-id="pendientes">Ver todas</button></div>' +
+    (urgentes.length ? urgentes.map(function (a) { return actRow(a, true); }).join('') :
+      '<div class="empty">Sin actividades vencidas ni por vencer esta semana.</div>') + '</div>';
+
+  const projHtml = '<div class="card"><div class="card-h"><h2>Avance de proyectos</h2>' +
+    '<button class="btn sm ghost" data-act="nav" data-id="proyectos">Ver todos</button></div>' +
+    (activos.length ? activos.sort(function (a, b) { return (a.fechaFin || '9') < (b.fechaFin || '9') ? -1 : 1; }).map(function (p) {
+      const st = currentStage(p.id);
+      const late = p.fechaFin && p.fechaFin < h;
+      return '<div class="list-item clickable" data-act="open-proj" data-id="' + p.id + '"><div class="grow">' +
+        '<div class="row between"><div class="title">' + esc(p.nombre) + '</div><span class="small strong">' + (p.avance || 0) + '%</span></div>' +
+        '<div class="meta"><span>' + esc(p.cliente || '—') + '</span>' + (st ? '<span>Etapa: <b>' + esc(st.nombre) + '</b></span>' : '') +
+        (p.fechaFin ? '<span' + (late ? ' style="color:var(--bad)"' : '') + '>Entrega ' + fmtDate(p.fechaFin) + '</span>' : '') + '</div>' +
+        '<div style="margin-top:6px">' + progress(p.avance) + '</div></div></div>';
+    }).join('') : '<div class="empty">No hay proyectos activos.<br><br>' + actBtn('new-proj', 'Crear proyecto', 'plus', 'primary') + '</div>') + '</div>';
+
+  const docs = d.documentos.filter(function (x) { return BAD_DOC.indexOf(x.estado) < 0 && DONE_DOC.indexOf(x.estado) < 0; })
+    .sort(function (a, b) { return a.actualizado > b.actualizado ? -1 : 1; }).slice(0, 8);
+  const docHtml = '<div class="card"><div class="card-h"><h2>Documentos en trámite</h2>' +
+    '<button class="btn sm ghost" data-act="nav" data-id="documentos">Ver todos</button></div>' +
+    (docs.length ? docs.map(function (x) { return docRow(x, true); }).join('') : '<div class="empty">No hay documentos en trámite.</div>') + '</div>';
+
+  return {
+    title: 'Panel',
+    actions: actBtn('new-proj', 'Nuevo proyecto', 'plus', 'primary'),
+    body: kpis + '<div class="grid two-col">' + urgHtml + projHtml + '</div><div style="height:14px"></div>' + docHtml
+  };
+}
+function kpi(label, value, sub, cls, nav, tipo) {
+  return '<div class="kpi ' + cls + '" data-act="nav" data-id="' + nav + '"' + (tipo ? ' data-tipo="' + esc(tipo) + '"' : '') + '>' +
+    '<div class="label">' + label + '</div><div class="value">' + value + '</div><div class="sub">' + esc(sub) + '</div></div>';
+}
+
+/* ---------------- Lista de proyectos ---------------- */
+function viewProyectos() {
+  const f = S.f, q = f.pq.toLowerCase();
+  const list = S.data.proyectos.filter(function (p) {
+    if (f.pestado === 'Activos' && !projActive(p)) return false;
+    if (f.pestado !== 'Activos' && f.pestado !== 'Todos' && p.estado !== f.pestado) return false;
+    return !q || [p.nombre, p.cliente, p.codigo, p.responsable].join(' ').toLowerCase().indexOf(q) >= 0;
+  }).sort(function (a, b) { return a.creado > b.creado ? -1 : 1; });
+
+  const toolbar = '<div class="toolbar"><input type="search" placeholder="Buscar proyecto, cliente, código…" data-filter="pq" value="' + esc(f.pq) + '">' +
+    select('pestado', ['Activos', 'Todos'].concat(PROJECT_STATES), f.pestado) + '</div>';
+
+  const cards = list.length ? '<div class="grid project-cards">' + list.map(function (p) {
+    const acts = actsOf(p.id), st = stagesOf(p.id);
+    const pend = acts.filter(isOpen).length, venc = acts.filter(isOverdue).length;
+    return '<div class="card pcard" data-act="open-proj" data-id="' + p.id + '">' +
+      '<div class="row between"><span class="code">' + esc(p.codigo) + '</span>' + pill(p.estado) + '</div>' +
+      '<h3>' + esc(p.nombre) + '</h3>' +
+      '<div class="meta"><span>' + esc(p.cliente || 'Sin cliente') + '</span>' + (p.responsable ? '<span>' + esc(p.responsable) + '</span>' : '') + '</div>' +
+      (st.length ? '<div class="pipeline">' + st.map(function (e) {
+        return '<span class="' + (e.estado === 'Completada' ? 'past' : (currentStage(p.id) === e ? 'cur' : '')) + '">' + esc(e.nombre) + '</span>';
+      }).join('') + '</div>' : '') +
+      '<div class="row">' + '<div style="flex:1">' + progress(p.avance) + '</div><span class="small strong">' + (p.avance || 0) + '%</span></div>' +
+      '<div class="meta"><span>' + pend + ' pendiente' + (pend === 1 ? '' : 's') + '</span>' +
+      (venc ? '<span style="color:var(--bad);font-weight:600">' + venc + ' vencida' + (venc === 1 ? '' : 's') + '</span>' : '') +
+      '<span>' + docsOf(p.id).length + ' doc.</span>' + (p.fechaFin ? '<span>Entrega ' + fmtDate(p.fechaFin) + '</span>' : '') + '</div>' +
+      '</div>';
+  }).join('') + '</div>' : '<div class="card empty">No hay proyectos que coincidan.<br><br>' + actBtn('new-proj', 'Crear proyecto', 'plus', 'primary') + '</div>';
+
+  return { title: 'Proyectos', actions: actBtn('new-proj', 'Nuevo proyecto', 'plus', 'primary'), body: toolbar + cards };
+}
+function select(filter, options, value, labels) {
+  return '<select data-filter="' + filter + '">' + options.map(function (o, i) {
+    return '<option value="' + esc(o) + '"' + (o === value ? ' selected' : '') + '>' + esc(labels ? labels[i] : o) + '</option>';
+  }).join('') + '</select>';
+}
+
+/* ---------------- Detalle de proyecto ---------------- */
+function viewProyecto() {
+  const p = proj(S.pid);
+  if (!p) { S.view = 'proyectos'; return viewProyectos(); }
+  const acts = actsOf(p.id), docs = docsOf(p.id), st = stagesOf(p.id);
+  const pend = acts.filter(isOpen).length, venc = acts.filter(isOverdue).length;
+  const sum = function (tipo, estados, neg) {
+    return fmtTotals(docs.filter(function (x) {
+      return x.tipo === tipo && (neg ? estados.indexOf(x.estado) < 0 : estados.indexOf(x.estado) >= 0);
+    }));
+  };
+
+  const info = '<div class="card" style="margin-bottom:14px"><div class="card-b">' +
+    '<div class="row between" style="flex-wrap:wrap;gap:8px"><div><span class="muted small strong">' + esc(p.codigo) + '</span>' +
+    '<div class="meta" style="margin-top:4px"><span>Cliente: <b>' + esc(p.cliente || '—') + '</b></span>' +
+    '<span>Responsable: <b>' + esc(p.responsable || '—') + '</b></span>' +
+    '<span>' + (p.fechaInicio ? fmtDate(p.fechaInicio) : '¿inicio?') + ' → ' + (p.fechaFin ? fmtDate(p.fechaFin) : '¿entrega?') + '</span>' +
+    (p.presupuesto ? '<span>Presupuesto: <b>' + fmtMoney(p.presupuesto, p.moneda) + '</b></span>' : '') + '</div></div>' +
+    '<select data-act-change="proj-estado" data-id="' + p.id + '" class="pill ' + stateClass(p.estado) + '" style="border:0;padding:6px 10px">' +
+    PROJECT_STATES.map(function (s) { return '<option' + (s === p.estado ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
+    (p.descripcion ? '<p class="small" style="margin:10px 0 0;white-space:pre-wrap">' + esc(p.descripcion) + '</p>' : '') +
+    '<div class="row" style="margin-top:12px"><div style="flex:1">' + progress(p.avance) + '</div><b>' + (p.avance || 0) + '%</b></div>' +
+    '<div class="meta" style="margin-top:6px"><span>' + pend + ' actividades pendientes</span>' +
+    (venc ? '<span style="color:var(--bad);font-weight:600">' + venc + ' vencidas</span>' : '') + '</div>' +
+    '</div></div>';
+
+  const fin = '<div class="grid kpis">' +
+    kpi('Cotizado (aprobado)', '<span style="font-size:18px">' + sum('Cotización', ['Aprobada']) + '</span>', docs.filter(function (x) { return x.tipo === 'Cotización'; }).length + ' cotizaciones', '', 'x') +
+    kpi('Órdenes de compra', '<span style="font-size:18px">' + sum('Orden de compra', ['Anulada'], true) + '</span>', docs.filter(function (x) { return x.tipo === 'Orden de compra'; }).length + ' órdenes', '', 'x') +
+    kpi('Facturado', '<span style="font-size:18px">' + sum('Factura', ['Anulada'], true) + '</span>', 'Pagado: ' + sum('Factura', ['Pagada']), '', 'x') +
+    '</div>';
+
+  const tabs = '<div class="tabs">' + [['etapas', 'Etapas y actividades'], ['documentos', 'Cotizaciones y OC (' + docs.length + ')'], ['historial', 'Historial']]
+    .map(function (t) { return '<button data-act="ptab" data-id="' + t[0] + '" class="' + (S.ptab === t[0] ? 'active' : '') + '">' + t[1] + '</button>'; }).join('') + '</div>';
+
+  let body = '';
+  if (S.ptab === 'etapas') body = tabEtapas(p, st, acts);
+  else if (S.ptab === 'documentos') body = tabDocs(p, docs);
+  else body = tabHistorial(p);
+
+  return {
+    title: '<span class="row" style="gap:6px"><button class="icon-btn" data-act="nav" data-id="proyectos" title="Volver">' + icon('back', 22) + '</button>' + esc(p.nombre) + '</span>',
+    actions: actBtn('edit-proj', 'Editar', 'edit', '', p.id) + actBtn('del-proj', 'Eliminar', 'trash', 'danger', p.id),
+    body: info + fin + tabs + body,
+    after: S.ptab === 'historial' && !S.hist ? function () {
+      api('getHistorial', p.id).then(function (h) { S.hist = h; if (S.view === 'proyecto' && S.ptab === 'historial') render(); });
+    } : null
+  };
+}
+
+function tabEtapas(p, st, acts) {
+  const strip = st.length ? '<div class="stages-strip">' + st.map(function (e, i) {
+    const cls = e.estado === 'Completada' ? 'ok' : e.estado === 'En curso' ? 'info' : e.estado === 'Bloqueada' ? 'bad' : '';
+    return '<div class="stage-chip ' + cls + '"><div class="n">' + (i + 1) + '. ' + esc(e.nombre) + '</div>' + esc(e.estado) + ' · ' + (e.avance || 0) + '%</div>';
+  }).join('') + '</div>' : '';
+
+  const stageCard = function (e, i, list) {
+    const ea = acts.filter(function (a) { return e ? a.etapaId === e.id : !a.etapaId || !st.some(function (s) { return s.id === a.etapaId; }); })
+      .sort(sortActs);
+    if (!e && !ea.length) return '';
+    const head = e ?
+      '<div class="stage-num ' + (e.estado === 'Completada' ? 'ok' : '') + '">' + (e.estado === 'Completada' ? '✓' : i + 1) + '</div>' +
+      '<div class="grow" style="flex:1;min-width:0"><div class="row" style="flex-wrap:wrap;gap:6px"><b>' + esc(e.nombre) + '</b>' + pill(e.estado) + '</div>' +
+      '<div class="meta">' + (e.fechaInicio || e.fechaFin ? '<span>' + fmtDate(e.fechaInicio) + ' → ' + fmtDate(e.fechaFin) + '</span>' : '') +
+      '<span>' + ea.filter(function (a) { return a.estado === 'Completada'; }).length + '/' + ea.filter(function (a) { return a.estado !== 'Cancelada'; }).length + ' actividades</span></div></div>' +
+      '<button class="icon-btn" data-act="up-stage" data-id="' + e.id + '" title="Subir"' + (i === 0 ? ' disabled' : '') + '>' + icon('up') + '</button>' +
+      '<button class="icon-btn" data-act="down-stage" data-id="' + e.id + '" title="Bajar"' + (i === list.length - 1 ? ' disabled' : '') + '>' + icon('down') + '</button>' +
+      '<button class="icon-btn" data-act="edit-stage" data-id="' + e.id + '" title="Editar etapa">' + icon('edit') + '</button>'
+      : '<div class="stage-num">–</div><div style="flex:1"><b>Sin etapa</b></div>';
+    return '<div class="card stage"><div class="stage-h">' + head + '</div>' +
+      (e ? '<div style="padding:0 16px">' + progress(e.avance) + '</div>' : '') +
+      (ea.length ? ea.map(function (a) { return actRow(a, false); }).join('') : '<div class="empty small">Sin actividades en esta etapa.</div>') +
+      '<div style="padding:10px 16px"><button class="btn sm" data-act="new-act" data-id="' + p.id + '" data-etapa="' + (e ? e.id : '') + '">' + icon('plus', 14) + 'Actividad</button></div></div>';
+  };
+
+  return '<div class="row between" style="margin-bottom:10px"><span class="muted small">' + st.length + ' etapas</span>' +
+    '<div class="row">' + actBtn('new-act', 'Actividad', 'plus', 'sm', p.id, ' data-etapa=""') + actBtn('new-stage', 'Etapa', 'plus', 'sm primary', p.id) + '</div></div>' +
+    strip + (st.length ? st.map(stageCard).join('') : '<div class="card empty">Este proyecto aún no tiene etapas. Crea la primera con «+ Etapa».</div>') +
+    stageCard(null, 0, []);
+}
+function sortActs(a, b) {
+  const oa = isOpen(a) ? 0 : 1, ob = isOpen(b) ? 0 : 1;
+  if (oa !== ob) return oa - ob;
+  return (a.fechaLimite || '9999') < (b.fechaLimite || '9999') ? -1 : (a.fechaLimite || '9999') > (b.fechaLimite || '9999') ? 1 : 0;
+}
+
+function actRow(a, showProject) {
+  const done = a.estado === 'Completada';
+  const p = showProject ? proj(a.proyectoId) : null;
+  const et = showProject ? S.data.etapas.find(function (e) { return e.id === a.etapaId; }) : null;
+  const late = isOverdue(a);
+  const today = a.fechaLimite === hoy() && isOpen(a);
+  return '<div class="list-item' + (done || a.estado === 'Cancelada' ? ' done' : '') + '">' +
+    '<button class="check' + (done ? ' on' : '') + '" data-act="toggle-act" data-id="' + a.id + '" title="' + (done ? 'Marcar pendiente' : 'Marcar completada') + '">' + (done ? '✓' : '') + '</button>' +
+    '<div class="grow clickable" data-act="edit-act" data-id="' + a.id + '"><div class="title">' + esc(a.titulo) + '</div>' +
+    '<div class="meta">' + (p ? '<span class="strong" style="color:var(--primary)">' + esc(p.nombre) + (et ? ' · ' + esc(et.nombre) : '') + '</span>' : '') +
+    (a.responsable ? '<span>' + esc(a.responsable) + '</span>' : '') +
+    (a.fechaLimite ? '<span style="' + (late ? 'color:var(--bad);font-weight:600' : today ? 'color:var(--warn);font-weight:600' : '') + '">' +
+      (late ? 'Venció ' : today ? 'Hoy · ' : 'Vence ') + fmtDate(a.fechaLimite) + '</span>' : '') + '</div></div>' +
+    prioPill(a.prioridad) + (a.estado !== 'Pendiente' && !done ? pill(a.estado) : '') + '</div>';
+}
+
+function docPipeline(d) {
+  const steps = DOC_TYPES[d.tipo] || [];
+  const bad = BAD_DOC.indexOf(d.estado) >= 0;
+  const visible = steps.filter(function (s) { return BAD_DOC.indexOf(s) < 0 || s === d.estado; });
+  const ci = visible.indexOf(d.estado);
+  return '<div class="pipeline">' + visible.map(function (s, i) {
+    return '<span class="' + (i === ci ? 'cur' + (bad ? ' bad' : '') : i < ci ? 'past' : '') + '">' + esc(s) + '</span>';
+  }).join('') + '</div>';
+}
+function docRow(d, showProject) {
+  const p = showProject ? proj(d.proyectoId) : null;
+  const ref = d.referenciaId ? S.data.documentos.find(function (x) { return x.id === d.referenciaId; }) : null;
+  return '<div class="list-item"><div class="grow clickable" data-act="edit-doc" data-id="' + d.id + '">' +
+    '<div class="row" style="gap:8px;flex-wrap:wrap"><span class="title">' + esc(d.tipo) + (d.numero ? ' N° ' + esc(d.numero) : '') + '</span>' + pill(d.estado) + '</div>' +
+    '<div class="meta">' + (p ? '<span class="strong" style="color:var(--primary)">' + esc(p.nombre) + '</span>' : '') +
+    (d.contraparte ? '<span>' + esc(d.contraparte) + '</span>' : '') + (d.fecha ? '<span>' + fmtDate(d.fecha) + '</span>' : '') +
+    (ref ? '<span>Ref: ' + esc(ref.tipo) + ' ' + esc(ref.numero) + '</span>' : '') + '</div>' +
+    docPipeline(d) + '</div>' +
+    '<div style="text-align:right"><div class="strong num">' + (d.monto !== '' ? fmtMoney(d.monto, d.moneda) : '') + '</div>' +
+    (d.archivoUrl ? '<a class="btn sm" style="margin-top:6px" href="' + esc(d.archivoUrl) + '" target="_blank" rel="noopener">' + icon('file', 14) + 'Ver</a>' : '') +
+    '</div></div>';
+}
+function tabDocs(p, docs) {
+  const groups = Object.keys(DOC_TYPES).map(function (t) {
+    const list = docs.filter(function (d) { return d.tipo === t; }).sort(function (a, b) { return (a.fecha || '') > (b.fecha || '') ? -1 : 1; });
+    if (!list.length) return '';
+    return '<div class="card" style="margin-bottom:14px"><div class="card-h"><h3>' + esc(t) + (t === 'Otro' ? 's' : t === 'Cotización' ? 'es' : 's') +
+      '</h3><span class="muted small">' + fmtTotals(list.filter(function (d) { return BAD_DOC.indexOf(d.estado) < 0; })) + '</span></div>' +
+      list.map(function (d) { return docRow(d, false); }).join('') + '</div>';
+  }).join('');
+  return '<div class="row between" style="margin-bottom:10px"><span class="muted small">Sube aquí cotizaciones, órdenes de compra y facturas (PDF, imagen, Excel…)</span>' +
+    actBtn('new-doc', 'Documento', 'plus', 'sm primary', p.id) + '</div>' +
+    (groups || '<div class="card empty">Aún no hay documentos en este proyecto.</div>');
+}
+function tabHistorial() {
+  if (!S.hist) return '<div class="card loading">Cargando historial…</div>';
+  if (!S.hist.length) return '<div class="card empty">Sin movimientos registrados.</div>';
+  return '<div class="card">' + S.hist.map(function (h) {
+    return '<div class="list-item"><div class="grow"><div><b>' + esc(h.entidad) + '</b> · ' + esc(h.accion) + '</div>' +
+      '<div class="meta"><span>' + esc(h.detalle) + '</span><span>' + fmtDateTime(h.fecha) + '</span>' + (h.usuario ? '<span>' + esc(h.usuario) + '</span>' : '') + '</div></div></div>';
+  }).join('') + '</div>';
+}
+
+/* ---------------- Pendientes ---------------- */
+function viewPendientes() {
+  const f = S.f, q = f.aq.toLowerCase(), h = hoy(), week = addDays(h, 7);
+  const list = S.data.actividades.filter(function (a) {
+    if (f.aest === 'Abiertas' && !isOpen(a)) return false;
+    if (f.aest === 'Vencidas' && !isOverdue(a)) return false;
+    if (['Abiertas', 'Vencidas', 'Todas'].indexOf(f.aest) < 0 && a.estado !== f.aest) return false;
+    if (f.aproy && a.proyectoId !== f.aproy) return false;
+    if (f.aresp && a.responsable !== f.aresp) return false;
+    const p = proj(a.proyectoId);
+    return !q || [a.titulo, a.responsable, a.notas, p && p.nombre].join(' ').toLowerCase().indexOf(q) >= 0;
+  }).sort(sortActs);
+
+  const buckets = [
+    ['Vencidas', function (a) { return isOverdue(a); }],
+    ['Hoy', function (a) { return isOpen(a) && a.fechaLimite === h; }],
+    ['Próximos 7 días', function (a) { return isOpen(a) && a.fechaLimite > h && a.fechaLimite <= week; }],
+    ['Más adelante', function (a) { return isOpen(a) && a.fechaLimite > week; }],
+    ['Sin fecha', function (a) { return isOpen(a) && !a.fechaLimite; }],
+    ['Cerradas', function (a) { return !isOpen(a); }]
+  ];
+  const projs = S.data.proyectos.slice().sort(function (a, b) { return a.nombre < b.nombre ? -1 : 1; });
+  const resps = responsables();
+  const toolbar = '<div class="toolbar"><input type="search" placeholder="Buscar actividad…" data-filter="aq" value="' + esc(f.aq) + '">' +
+    select('aest', ['Abiertas', 'Vencidas', 'Todas'].concat(ACT_STATES), f.aest) +
+    select('aproy', [''].concat(projs.map(function (p) { return p.id; })), f.aproy, ['Todos los proyectos'].concat(projs.map(function (p) { return p.nombre; }))) +
+    select('aresp', [''].concat(resps), f.aresp, ['Todos los responsables'].concat(resps)) + '</div>';
+
+  const body = buckets.map(function (b) {
+    const items = list.filter(b[1]);
+    if (!items.length) return '';
+    return '<div class="card" style="margin-bottom:14px"><div class="card-h"><h3' + (b[0] === 'Vencidas' ? ' style="color:var(--bad)"' : '') + '>' +
+      b[0] + ' <span class="muted small">(' + items.length + ')</span></h3></div>' + items.map(function (a) { return actRow(a, true); }).join('') + '</div>';
+  }).join('');
+
+  return {
+    title: 'Pendientes',
+    actions: S.data.proyectos.length ? actBtn('new-act', 'Actividad', 'plus', 'primary', f.aproy || '', ' data-etapa=""') : '',
+    body: toolbar + (body || '<div class="card empty">No hay actividades con estos filtros. ¡Todo al día!</div>')
+  };
+}
+
+/* ---------------- Documentos ---------------- */
+function viewDocumentos() {
+  const f = S.f, q = f.dq.toLowerCase();
+  const list = S.data.documentos.filter(function (d) {
+    if (f.dtipo && d.tipo !== f.dtipo) return false;
+    if (f.dest === 'En trámite' && (BAD_DOC.indexOf(d.estado) >= 0 || DONE_DOC.indexOf(d.estado) >= 0)) return false;
+    if (f.dest && f.dest !== 'En trámite' && d.estado !== f.dest) return false;
+    if (f.dproy && d.proyectoId !== f.dproy) return false;
+    const p = proj(d.proyectoId);
+    return !q || [d.numero, d.contraparte, d.notas, d.tipo, p && p.nombre, p && p.cliente].join(' ').toLowerCase().indexOf(q) >= 0;
+  }).sort(function (a, b) { return (a.fecha || '') > (b.fecha || '') ? -1 : 1; });
+
+  const estados = f.dtipo ? DOC_TYPES[f.dtipo] : Object.keys(DOC_TYPES).reduce(function (acc, t) {
+    DOC_TYPES[t].forEach(function (s) { if (acc.indexOf(s) < 0) acc.push(s); }); return acc;
+  }, []);
+  const projs = S.data.proyectos.slice().sort(function (a, b) { return a.nombre < b.nombre ? -1 : 1; });
+  const toolbar = '<div class="toolbar"><input type="search" placeholder="Buscar N°, proveedor, cliente…" data-filter="dq" value="' + esc(f.dq) + '">' +
+    select('dtipo', [''].concat(Object.keys(DOC_TYPES)), f.dtipo, ['Todos los tipos'].concat(Object.keys(DOC_TYPES))) +
+    select('dest', ['', 'En trámite'].concat(estados), f.dest, ['Todos los estados', 'En trámite'].concat(estados)) +
+    select('dproy', [''].concat(projs.map(function (p) { return p.id; })), f.dproy, ['Todos los proyectos'].concat(projs.map(function (p) { return p.nombre; }))) + '</div>';
+
+  const totals = '<div class="grid kpis">' + Object.keys(DOC_TYPES).filter(function (t) { return t !== 'Otro'; }).map(function (t) {
+    const l = list.filter(function (d) { return d.tipo === t && BAD_DOC.indexOf(d.estado) < 0; });
+    return kpi(t === 'Orden de compra' ? 'Órdenes de compra' : t === 'Cotización' ? 'Cotizaciones' : 'Facturas', l.length,
+      fmtTotals(l), '', 'documentos', t);
+  }).join('') + '</div>';
+
+  const table = list.length ? '<div class="card">' + list.map(function (d) { return docRow(d, true); }).join('') + '</div>'
+    : '<div class="card empty">No hay documentos con estos filtros.</div>';
+
+  return {
+    title: 'Cotizaciones y órdenes de compra',
+    actions: S.data.proyectos.length ? actBtn('new-doc', 'Subir documento', 'plus', 'primary', f.dproy || '') : '',
+    body: toolbar + totals + table
+  };
+}
+
+/* ---------------- Ajustes ---------------- */
+function viewAjustes() {
+  const c = S.data.config;
+  return {
+    title: 'Ajustes',
+    actions: S.data.hojaUrl ? '<a class="btn" href="' + esc(S.data.hojaUrl) + '" target="_blank" rel="noopener">' + icon('sheet', 16) + '<span class="lbl">Abrir Google Sheets</span></a>' : '',
+    body: '<div class="card" style="max-width:640px"><div class="card-b"><form class="form" id="cfg-form">' +
+      field({ name: 'empresa', label: 'Nombre de la empresa', full: true }, c.empresa) +
+      field({ name: 'moneda', label: 'Moneda principal', type: 'select', options: MONEDAS }, c.moneda) +
+      '<div></div>' +
+      field({ name: 'etapasPlantilla', label: 'Etapas por defecto para proyectos nuevos (separadas por coma)', type: 'textarea', full: true }, c.etapasPlantilla) +
+      field({ name: 'responsables', label: 'Equipo / responsables (separados por coma)', type: 'textarea', full: true }, c.responsables) +
+      '<div class="full"><button type="submit" class="btn primary">Guardar ajustes</button></div></form></div></div>' +
+      '<div class="card" style="max-width:640px;margin-top:14px"><div class="card-b small muted">' +
+      'Toda la información se guarda en Google Sheets (hojas <b>Proyectos</b>, <b>Etapas</b>, <b>Actividades</b>, <b>Documentos</b> e <b>Historial</b>) ' +
+      'y los archivos en la carpeta de Google Drive «Gestión de Proyectos - Archivos». Puedes crear tablas dinámicas, gráficos o conectar Looker Studio directamente a esas hojas.' +
+      '<br><br>Usuario: ' + esc(S.data.usuario || '—') + '</div></div>',
+    after: function () {
+      $('#cfg-form').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        mutate('saveConfig', [formValues(ev.target)], 'Ajustes guardados');
+      });
+    }
+  };
+}
+
+/* ---------------- Formularios / modal ---------------- */
+function field(fd, value) {
+  const v = value === undefined || value === null ? '' : value;
+  const req = fd.required ? ' required' : '';
+  let input;
+  if (fd.type === 'select') {
+    input = '<select name="' + fd.name + '"' + req + '>' + fd.options.map(function (o, i) {
+      const val = typeof o === 'object' ? o.v : o, lab = typeof o === 'object' ? o.l : o;
+      return '<option value="' + esc(val) + '"' + (String(val) === String(v) ? ' selected' : '') + '>' + esc(lab) + '</option>';
+    }).join('') + '</select>';
+  } else if (fd.type === 'textarea') {
+    input = '<textarea name="' + fd.name + '"' + req + '>' + esc(v) + '</textarea>';
+  } else if (fd.type === 'checkbox') {
+    return '<label class="check-label ' + (fd.full ? 'full' : '') + '"><input type="checkbox" name="' + fd.name + '"' + (v ? ' checked' : '') + '>' + esc(fd.label) + '</label>';
+  } else if (fd.type === 'file') {
+    return '<div class="full"><label style="margin-bottom:4px">' + esc(fd.label) + '</label>' +
+      '<label class="drop" id="drop"><input type="file" name="' + fd.name + '" style="display:none" accept=".pdf,image/*,.xls,.xlsx,.doc,.docx,.csv,.zip">' +
+      '<span id="drop-txt">' + (v ? 'Archivo actual: <b>' + esc(v) + '</b><br>Toca para reemplazarlo' : 'Toca para elegir un archivo o tomar una foto') + '</span></label></div>';
+  } else {
+    input = '<input type="' + (fd.type || 'text') + '" name="' + fd.name + '" value="' + esc(v) + '"' + req +
+      (fd.list ? ' list="' + fd.list + '"' : '') + (fd.type === 'number' ? ' step="0.01" inputmode="decimal"' : '') + (fd.placeholder ? ' placeholder="' + esc(fd.placeholder) + '"' : '') + '>';
+  }
+  return '<label class="' + (fd.full ? 'full' : '') + '">' + esc(fd.label) + (fd.required ? ' *' : '') + input + '</label>';
+}
+function formValues(form) {
+  const o = {};
+  Array.prototype.forEach.call(form.elements, function (el) {
+    if (!el.name || el.type === 'file') return;
+    o[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  return o;
+}
+function openModal(opts) {
+  const root = $('#modal-root');
+  const dl = '<datalist id="dl-resp">' + responsables().map(function (r) { return '<option value="' + esc(r) + '">'; }).join('') + '</datalist>';
+  root.innerHTML = '<div class="modal-bg"><form class="modal" id="mform" novalidate>' +
+    '<div class="modal-h"><h3>' + esc(opts.title) + '</h3><button type="button" class="icon-btn" data-close>' + icon('x') + '</button></div>' +
+    '<div class="modal-b"><div class="form">' + opts.fields.map(function (fd) { return field(fd, opts.values[fd.name]); }).join('') + '</div>' + dl + '</div>' +
+    '<div class="modal-f">' + (opts.onDelete ? '<button type="button" class="btn danger" data-del style="margin-right:auto">' + icon('trash', 16) + 'Eliminar</button>' : '') +
+    '<button type="button" class="btn" data-close>Cancelar</button><button type="submit" class="btn primary">' + esc(opts.submit || 'Guardar') + '</button></div>' +
+    '</form></div>';
+  const form = $('#mform');
+  const close = function () { root.innerHTML = ''; };
+  root.querySelectorAll('[data-close]').forEach(function (b) { b.onclick = close; });
+  root.querySelector('.modal-bg').addEventListener('mousedown', function (e) { if (e.target.classList.contains('modal-bg')) close(); });
+  if (opts.onDelete) root.querySelector('[data-del]').onclick = function () {
+    if (confirm(opts.deleteConfirm || '¿Eliminar este elemento?')) opts.onDelete().then(function (ok) { if (ok) close(); });
+  };
+  const fileInput = form.querySelector('input[type=file]');
+  if (fileInput) fileInput.onchange = function () {
+    const f = fileInput.files[0];
+    if (f) { $('#drop').classList.add('has'); $('#drop-txt').innerHTML = '<b>' + esc(f.name) + '</b> (' + Math.round(f.size / 1024) + ' KB)'; }
+  };
+  if (opts.onInput) { form.addEventListener('change', function (e) { opts.onInput(e, form); }); }
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    const vals = formValues(form);
+    const missing = opts.fields.filter(function (fd) { return fd.required && !String(vals[fd.name] || '').trim(); });
+    if (missing.length) { toast('Completa: ' + missing.map(function (m) { return m.label; }).join(', '), true); return; }
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    readFile(fileInput && fileInput.files[0]).then(function (file) {
+      return opts.onSubmit(vals, file);
+    }).then(function (ok) {
+      if (ok) close(); else { btn.disabled = false; btn.textContent = opts.submit || 'Guardar'; }
+    }).catch(function (e) { toast(e.message, true); btn.disabled = false; btn.textContent = opts.submit || 'Guardar'; });
+  });
+  const first = form.querySelector('input:not([type=hidden]):not([type=file]),textarea');
+  if (first && window.innerWidth > 820) first.focus();
+}
+function readFile(f) {
+  if (!f) return Promise.resolve(null);
+  if (f.size > 40 * 1024 * 1024) return Promise.reject(new Error('El archivo supera 40 MB'));
+  return new Promise(function (resolve, reject) {
+    const r = new FileReader();
+    r.onload = function () { resolve({ name: f.name, mimeType: f.type, data: String(r.result).split(',')[1] }); };
+    r.onerror = function () { reject(new Error('No se pudo leer el archivo')); };
+    r.readAsDataURL(f);
+  });
+}
+
+function projectOptions() { return S.data.proyectos.map(function (p) { return { v: p.id, l: p.codigo + ' · ' + p.nombre }; }); }
+
+function formProyecto(p) {
+  const isNew = !p;
+  p = p || { estado: 'Planificación', moneda: cfg('moneda'), fechaInicio: hoy(), crearEtapas: true };
+  const fields = [
+    { name: 'nombre', label: 'Nombre del proyecto', required: true, full: true },
+    { name: 'cliente', label: 'Cliente' },
+    { name: 'responsable', label: 'Responsable', list: 'dl-resp' },
+    { name: 'fechaInicio', label: 'Fecha de inicio', type: 'date' },
+    { name: 'fechaFin', label: 'Fecha de entrega', type: 'date' },
+    { name: 'presupuesto', label: 'Presupuesto', type: 'number' },
+    { name: 'moneda', label: 'Moneda', type: 'select', options: MONEDAS },
+    { name: 'estado', label: 'Estado', type: 'select', options: PROJECT_STATES },
+    { name: 'codigo', label: 'Código', placeholder: isNew ? 'Automático (PRY-AAAA-001)' : '' },
+    { name: 'descripcion', label: 'Descripción / alcance', type: 'textarea', full: true }
+  ];
+  if (isNew) fields.push({ name: 'crearEtapas', label: 'Crear etapas por defecto (' + (cfg('etapasPlantilla') || '') + ')', type: 'checkbox', full: true });
+  openModal({
+    title: isNew ? 'Nuevo proyecto' : 'Editar proyecto', fields: fields, values: p,
+    onSubmit: function (v) {
+      const crear = v.crearEtapas; delete v.crearEtapas;
+      if (!isNew) v.id = p.id;
+      const before = S.data.proyectos.map(function (x) { return x.id; });
+      return mutate('saveProyecto', [v, !!crear], isNew ? 'Proyecto creado' : 'Proyecto actualizado').then(function (ok) {
+        if (ok && isNew) {
+          const created = S.data.proyectos.find(function (x) { return before.indexOf(x.id) < 0; });
+          if (created) go('proyecto', created.id);
+        }
+        return ok;
+      });
+    }
+  });
+}
+function formEtapa(pid, e) {
+  const isNew = !e;
+  openModal({
+    title: isNew ? 'Nueva etapa' : 'Editar etapa',
+    fields: [
+      { name: 'nombre', label: 'Nombre de la etapa', required: true, full: true },
+      { name: 'fechaInicio', label: 'Inicio', type: 'date' },
+      { name: 'fechaFin', label: 'Fin', type: 'date' }
+    ],
+    values: e || {},
+    onSubmit: function (v) {
+      v.proyectoId = pid; if (!isNew) v.id = e.id;
+      return mutate('saveEtapa', [v], isNew ? 'Etapa creada' : 'Etapa actualizada');
+    },
+    onDelete: isNew ? null : function () { return mutate('deleteEtapa', [e.id], 'Etapa eliminada'); },
+    deleteConfirm: '¿Eliminar la etapa «' + (e ? e.nombre : '') + '»? Sus actividades quedarán «Sin etapa».'
+  });
+}
+function etapaOptions(pid) {
+  return [{ v: '', l: 'Sin etapa' }].concat(stagesOf(pid).map(function (e, i) { return { v: e.id, l: (i + 1) + '. ' + e.nombre }; }));
+}
+function formActividad(pid, etapaId, a) {
+  const isNew = !a;
+  if (!pid && S.data.proyectos.length) pid = (S.data.proyectos.find(projActive) || S.data.proyectos[0]).id;
+  const vals = a || { proyectoId: pid, etapaId: etapaId || (currentStage(pid) && currentStage(pid).id) || '', estado: 'Pendiente', prioridad: 'Media' };
+  const fields = function (p) {
+    return [
+      { name: 'titulo', label: 'Actividad', required: true, full: true },
+      { name: 'proyectoId', label: 'Proyecto', type: 'select', options: projectOptions(), full: true },
+      { name: 'etapaId', label: 'Etapa', type: 'select', options: etapaOptions(p) },
+      { name: 'responsable', label: 'Responsable', list: 'dl-resp' },
+      { name: 'fechaLimite', label: 'Fecha límite', type: 'date' },
+      { name: 'prioridad', label: 'Prioridad', type: 'select', options: PRIORIDADES },
+      { name: 'estado', label: 'Estado', type: 'select', options: ACT_STATES },
+      { name: 'notas', label: 'Notas', type: 'textarea', full: true }
+    ];
+  };
+  openModal({
+    title: isNew ? 'Nueva actividad' : 'Editar actividad', fields: fields(vals.proyectoId), values: vals,
+    onInput: function (ev, form) {
+      if (ev.target.name === 'proyectoId') {
+        form.querySelector('select[name=etapaId]').innerHTML = etapaOptions(ev.target.value)
+          .map(function (o) { return '<option value="' + esc(o.v) + '">' + esc(o.l) + '</option>'; }).join('');
+      }
+    },
+    onSubmit: function (v) {
+      if (!isNew) v.id = a.id;
+      return mutate('saveActividad', [v], isNew ? 'Actividad creada' : 'Actividad actualizada');
+    },
+    onDelete: isNew ? null : function () { return mutate('deleteActividad', [a.id], 'Actividad eliminada'); },
+    deleteConfirm: '¿Eliminar esta actividad?'
+  });
+}
+function docOptionsFor(pid, excludeId) {
+  return [{ v: '', l: '— Ninguno —' }].concat(docsOf(pid).filter(function (d) { return d.id !== excludeId; })
+    .map(function (d) { return { v: d.id, l: d.tipo + ' ' + (d.numero || '') + (d.contraparte ? ' · ' + d.contraparte : '') }; }));
+}
+function formDocumento(pid, d) {
+  const isNew = !d;
+  if (!pid && S.data.proyectos.length) pid = (S.data.proyectos.find(projActive) || S.data.proyectos[0]).id;
+  const vals = d || { proyectoId: pid, tipo: 'Cotización', estado: 'Borrador', fecha: hoy(), moneda: (proj(pid) || {}).moneda || cfg('moneda') };
+  openModal({
+    title: isNew ? 'Nuevo documento' : 'Editar ' + d.tipo.toLowerCase(),
+    fields: [
+      { name: 'tipo', label: 'Tipo de documento', type: 'select', options: Object.keys(DOC_TYPES) },
+      { name: 'estado', label: 'Estado', type: 'select', options: DOC_TYPES[vals.tipo] },
+      { name: 'proyectoId', label: 'Proyecto', type: 'select', options: projectOptions(), full: true },
+      { name: 'numero', label: 'Número' },
+      { name: 'fecha', label: 'Fecha', type: 'date' },
+      { name: 'contraparte', label: 'Proveedor / cliente', full: true },
+      { name: 'monto', label: 'Monto', type: 'number' },
+      { name: 'moneda', label: 'Moneda', type: 'select', options: MONEDAS },
+      { name: 'referenciaId', label: 'Relacionado con (ej. OC ← cotización)', type: 'select', options: docOptionsFor(vals.proyectoId, vals.id), full: true },
+      { name: 'archivo', label: 'Archivo (PDF, foto, Excel…)', type: 'file' },
+      { name: 'notas', label: 'Notas', type: 'textarea', full: true }
+    ],
+    values: Object.assign({}, vals, { archivo: vals.archivoNombre }),
+    onInput: function (ev, form) {
+      if (ev.target.name === 'tipo') {
+        form.querySelector('select[name=estado]').innerHTML = DOC_TYPES[ev.target.value]
+          .map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('');
+      }
+      if (ev.target.name === 'proyectoId') {
+        form.querySelector('select[name=referenciaId]').innerHTML = docOptionsFor(ev.target.value, vals.id)
+          .map(function (o) { return '<option value="' + esc(o.v) + '">' + esc(o.l) + '</option>'; }).join('');
+      }
+    },
+    onSubmit: function (v, file) {
+      if (!isNew) v.id = d.id;
+      if (file) toast('Subiendo archivo…');
+      return mutate('saveDocumento', [v, file], isNew ? 'Documento guardado' : 'Documento actualizado');
+    },
+    onDelete: isNew ? null : function () { return mutate('deleteDocumento', [d.id], 'Documento eliminado'); },
+    deleteConfirm: '¿Eliminar este registro? El archivo seguirá guardado en Google Drive.'
+  });
+}
+
+/* ---------------- Eventos ---------------- */
+const ACTIONS = {
+  'nav': function (id, el) {
+    if (id === 'x') return;
+    if (id === 'documentos' && el.dataset.tipo) { S.f.dtipo = el.dataset.tipo; S.f.dest = ''; }
+    go(id);
+  },
+  'open-proj': function (id) { go('proyecto', id); },
+  'ptab': function (id) { S.ptab = id; render(); },
+  'new-proj': function () { formProyecto(null); },
+  'edit-proj': function (id) { formProyecto(proj(id)); },
+  'del-proj': function (id) {
+    const p = proj(id);
+    if (confirm('¿Eliminar el proyecto «' + p.nombre + '» con todas sus etapas, actividades y registros de documentos?\n(Los archivos permanecen en Google Drive.)')) {
+      mutate('deleteProyecto', [id], 'Proyecto eliminado').then(function (ok) { if (ok) go('proyectos'); });
+    }
+  },
+  'new-stage': function (id) { formEtapa(id, null); },
+  'edit-stage': function (id) { const e = S.data.etapas.find(function (x) { return x.id === id; }); formEtapa(e.proyectoId, e); },
+  'up-stage': function (id) { mutate('moveEtapa', [id, -1]); },
+  'down-stage': function (id) { mutate('moveEtapa', [id, 1]); },
+  'new-act': function (id, el) { formActividad(id, el.dataset.etapa, null); },
+  'edit-act': function (id) { const a = S.data.actividades.find(function (x) { return x.id === id; }); formActividad(a.proyectoId, a.etapaId, a); },
+  'toggle-act': function (id) {
+    const a = S.data.actividades.find(function (x) { return x.id === id; });
+    const nuevo = a.estado === 'Completada' ? 'Pendiente' : 'Completada';
+    a.estado = nuevo; render(); // respuesta inmediata
+    mutate('setEstadoActividad', [id, nuevo], nuevo === 'Completada' ? 'Actividad completada ✓' : 'Actividad reabierta');
+  },
+  'new-doc': function (id) { formDocumento(id, null); },
+  'edit-doc': function (id) { const d = S.data.documentos.find(function (x) { return x.id === id; }); formDocumento(d.proyectoId, d); }
+};
+document.addEventListener('click', function (ev) {
+  if (ev.target.closest('a[href]')) return;
+  const el = ev.target.closest('[data-act]');
+  if (!el || el.tagName === 'SELECT' || el.disabled) return;
+  const fn = ACTIONS[el.dataset.act];
+  if (fn) { ev.preventDefault(); fn(el.dataset.id, el); }
+});
+document.addEventListener('input', function (ev) {
+  const k = ev.target.dataset && ev.target.dataset.filter;
+  if (!k || ev.target.tagName !== 'INPUT') return;
+  S.f[k] = ev.target.value;
+  clearTimeout(S._ft);
+  S._ft = setTimeout(function () {
+    const pos = ev.target.selectionStart;
+    render();
+    const again = document.querySelector('[data-filter="' + k + '"]');
+    if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) {} }
+  }, 200);
+});
+document.addEventListener('change', function (ev) {
+  const t = ev.target;
+  if (t.dataset && t.dataset.filter && t.tagName === 'SELECT') {
+    S.f[t.dataset.filter] = t.value;
+    if (t.dataset.filter === 'dtipo') S.f.dest = '';
+    render();
+  }
+  if (t.dataset && t.dataset.actChange === 'proj-estado') {
+    const p = proj(t.dataset.id);
+    mutate('saveProyecto', [Object.assign({}, p, { estado: t.value }), false], 'Estado: ' + t.value);
+  }
+});
+
+load();
+</script>
