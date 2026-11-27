@@ -250,9 +250,19 @@ function toast(msg, err) {
 function api(fn) {
   const args = Array.prototype.slice.call(arguments, 1);
   return new Promise(function (resolve, reject) {
-    const r = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+    let done = false;
+    // Si Google tarda, avisar en vez de quedarse "en nada"
+    const slow = setTimeout(function () { if (!done) toast('Sigue guardando, espera un momento…'); }, 4000);
+    const limit = setTimeout(function () {
+      if (done) return;
+      done = true;
+      reject(new Error('Google no respondió en 45 segundos. Revisa tu internet y vuelve a intentarlo. ' +
+        'Si se repite, recarga la página.'));
+    }, 45000);
+    const finish = function (cb) { return function (x) { if (done) return; done = true; clearTimeout(slow); clearTimeout(limit); cb(x); }; };
+    const r = google.script.run.withSuccessHandler(finish(resolve)).withFailureHandler(finish(function (e) {
       reject(e && e.message ? e : new Error(String(e)));
-    });
+    }));
     r[fn].apply(r, args);
   });
 }

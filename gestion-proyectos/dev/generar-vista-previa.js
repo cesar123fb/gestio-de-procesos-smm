@@ -45,7 +45,7 @@ function folder(){const id='f'+(++n);const f={getId:function(){return id;},creat
 function pad(x){return String(x).padStart(2,'0');}
 window.SpreadsheetApp={getActiveSpreadsheet:function(){return ss;},openById:function(){return ss;}};
 window.PropertiesService={getScriptProperties:function(){return{getProperty:function(k){return props[k]||null;},setProperty:function(k,v){props[k]=v;}};}};
-window.LockService={getScriptLock:function(){return{waitLock:function(){},releaseLock:function(){}};}};
+window.LockService={getScriptLock:function(){return{waitLock:function(){},tryLock:function(){return true;},releaseLock:function(){}};}};
 window.Session={getActiveUser:function(){return{getEmail:function(){return 'demo@ejemplo.com';}};}};
 window.DriveApp={createFolder:function(){return folder();},getFolderById:function(id){if(!folders[id])throw new Error('x');return folders[id];}};
 window.Utilities={getUuid:function(){return (crypto.randomUUID?crypto.randomUUID():(Math.random().toString(16).slice(2)+'00000000'));},

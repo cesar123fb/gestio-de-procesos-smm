@@ -804,8 +804,36 @@ function getConfigValue_(k) {
 
 function withLock_(fn) {
   const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  if (!lock.tryLock(15000)) throw new Error('Otra persona está guardando en este momento. Espera unos segundos y vuelve a intentarlo.');
   try { return fn(); } finally { lock.releaseLock(); }
+}
+
+/**
+ * DIAGNÓSTICO: ejecútalo desde el editor (elige «diagnostico» y pulsa Ejecutar).
+ * En «Registro de ejecución» muestra cuánto tarda cada paso, para saber dónde está la demora.
+ */
+function diagnostico() {
+  const t0 = Date.now();
+  const lap = function (label, t) { console.log(label + ': ' + (Date.now() - t) + ' ms'); return Date.now(); };
+  resetCache_();
+  let t = Date.now();
+  ss_(); t = lap('Abrir la hoja de cálculo', t);
+  tz_(); t = lap('Zona horaria', t);
+  const lock = LockService.getScriptLock();
+  const got = lock.tryLock(15000);
+  t = lap('Bloqueo de escritura (' + (got ? 'libre' : 'OCUPADO: otra ejecución lo tiene') + ')', t);
+  if (got) lock.releaseLock();
+  Object.keys(SCHEMA).forEach(function (name) {
+    if (name === 'Historial') return;
+    const filas = raw_(name).length - 1;
+    t = lap('Leer hoja ' + name + ' (' + filas + ' filas)', t);
+  });
+  const total = JSON.stringify(getData()).length;
+  t = lap('Armar datos para la app (' + Math.round(total / 1024) + ' KB)', t);
+  const hist = sheet_('Historial').getLastRow();
+  lap('Filas en Historial: ' + hist, t);
+  console.log('TOTAL: ' + (Date.now() - t0) + ' ms');
+  console.log('Versión de estructura: ' + PropertiesService.getScriptProperties().getProperty('SCHEMA_VERSION'));
 }
 
 function pick_(obj, fields) {

@@ -90,7 +90,7 @@ const sandbox = {
   console,
   SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, openById: () => spreadsheet, getUi: () => null },
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] || null, setProperty: (k, v) => { props[k] = v; } }) },
-  LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+  LockService: { getScriptLock: () => ({ waitLock: () => {}, tryLock: () => true, releaseLock: () => {} }) },
   Session: { getActiveUser: () => ({ getEmail: () => 'usuario@ejemplo.com' }) },
   DriveApp: {
     createFolder: (n) => makeFolder(n),
