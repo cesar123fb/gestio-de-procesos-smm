@@ -43,19 +43,29 @@ const DATE_FIELDS = ['fechaInicio', 'fechaFin', 'fechaLimite', 'fecha', 'emision
 const NUMBER_FIELDS = ['presupuesto', 'monto', 'orden', 'avance', 'horas', 'stock', 'stockMinimo', 'cantidad',
   'stockResultante', 'frecuenciaDias'];
 
+const SCHEMA_VERSION = '2';
+
 let SS_CACHE = null;
 let TZ_CACHE = null;
 
 /* ======================= Web app ======================= */
 
 function doGet() {
-  setup();
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  ensureSetup_();
+  const t = HtmlService.createTemplateFromFile('Index');
+  // Los datos van dentro de la página: se ahorra una segunda ida y vuelta al servidor al abrir
+  t.boot = JSON.stringify(getData()).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  return t.evaluate()
     .setTitle(getConfigValue_('empresa') + ' · Proyectos')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
     .addMetaTag('mobile-web-app-capable', 'yes')
     .addMetaTag('apple-mobile-web-app-capable', 'yes');
+}
+
+/** Ejecuta setup() solo cuando cambia la estructura de las hojas (no en cada visita). */
+function ensureSetup_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SCHEMA_VERSION') !== SCHEMA_VERSION) setup();
 }
 
 function include(name) {
@@ -73,6 +83,7 @@ function onOpen() {
 
 /** Crea las hojas y encabezados que falten. Seguro de ejecutar varias veces. */
 function setup() {
+  resetCache_();
   const ss = ss_();
   Object.keys(SCHEMA).forEach(function (name) {
     let sh = ss.getSheetByName(name);
@@ -97,6 +108,7 @@ function setup() {
   Object.keys(DEFAULT_CONFIG).forEach(function (k) {
     if (!(k in cfg)) appendRow_('Config', { clave: k, valor: DEFAULT_CONFIG[k] });
   });
+  PropertiesService.getScriptProperties().setProperty('SCHEMA_VERSION', SCHEMA_VERSION);
   return true;
 }
 
@@ -639,6 +651,16 @@ function keepFile_(rec, prev) {
 }
 
 /* ======================= Acceso a la hoja ======================= */
+/*
+ * Rendimiento: cada llamada a SpreadsheetApp cuesta ~30-100 ms. Por eso cada hoja se lee UNA sola vez
+ * por ejecución (getDataRange) y se guarda en RAW; las escrituras actualizan la hoja y también RAW,
+ * así las lecturas siguientes (y el getData() final) no vuelven a consultar a Google.
+ */
+let RAW = {};
+let SHEETS = {};
+let HEADERS = {};
+
+function resetCache_() { RAW = {}; SHEETS = {}; HEADERS = {}; }
 
 function ss_() {
   if (SS_CACHE) return SS_CACHE;
@@ -653,24 +675,40 @@ function tz_() {
 }
 
 function sheet_(name) {
-  const sh = ss_().getSheetByName(name);
-  if (!sh) { setup(); return ss_().getSheetByName(name); }
+  if (SHEETS[name]) return SHEETS[name];
+  let sh = ss_().getSheetByName(name);
+  if (!sh) { setup(); sh = ss_().getSheetByName(name); }
+  SHEETS[name] = sh;
   return sh;
 }
 
-function headers_(sh) {
-  return sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+/** Todas las celdas de la hoja (fila 1 = encabezados), leídas una vez por ejecución. */
+function raw_(name) {
+  if (!RAW[name]) {
+    const v = sheet_(name).getDataRange().getValues();
+    RAW[name] = v.length ? v : [[]];
+  }
+  return RAW[name];
 }
 
+function headers_(name) {
+  if (RAW[name]) return RAW[name][0].map(String);
+  if (name === 'Historial') return SCHEMA.Historial; // bitácora: solo se agregan filas, en el orden del esquema
+  if (!HEADERS[name]) {
+    const sh = sheet_(name);
+    HEADERS[name] = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0].map(String);
+  }
+  return HEADERS[name];
+}
+
+function isEmptyRow_(row) { return !row.some(function (c) { return c !== '' && c !== null; }); }
+
 function readAll_(name) {
-  const sh = sheet_(name);
-  const last = sh.getLastRow();
-  if (last < 2) return [];
-  const headers = headers_(sh);
-  const values = sh.getRange(2, 1, last - 1, headers.length).getValues();
-  return values
-    .filter(function (row) { return row.some(function (c) { return c !== '' && c !== null; }); })
-    .map(function (row) { return rowToObj_(name, headers, row); });
+  const v = raw_(name);
+  const headers = v[0].map(String);
+  const out = [];
+  for (let i = 1; i < v.length; i++) if (!isEmptyRow_(v[i])) out.push(rowToObj_(name, headers, v[i]));
+  return out;
 }
 
 function rowToObj_(name, headers, row) {
@@ -684,7 +722,7 @@ function normalize_(sheetName, field, v) {
     const dateOnly = DATE_FIELDS.indexOf(field) >= 0 && sheetName !== 'Historial';
     return Utilities.formatDate(v, tz_(), dateOnly ? 'yyyy-MM-dd' : "yyyy-MM-dd'T'HH:mm:ss");
   }
-  if (NUMBER_FIELDS.indexOf(field) >= 0) return v === '' || v === null ? '' : Number(v);
+  if (NUMBER_FIELDS.indexOf(field) >= 0) return v === '' || v === null || v === undefined ? '' : Number(v);
   return v === null || v === undefined ? '' : (typeof v === 'number' ? v : String(v));
 }
 
@@ -697,52 +735,58 @@ function toRow_(headers, obj) {
   });
 }
 
-function rowIndexWhere_(sh, field, value) {
-  const last = sh.getLastRow();
-  if (last < 2) return -1;
-  const col = headers_(sh).indexOf(field) + 1;
-  const vals = sh.getRange(2, col, last - 1, 1).getValues();
-  for (let i = 0; i < vals.length; i++) if (String(vals[i][0]) === String(value)) return i + 2;
+/** Número de fila en la hoja (1 = encabezados) donde field == value, o -1. */
+function rowIndexWhere_(name, field, value) {
+  const v = raw_(name);
+  const col = v[0].map(String).indexOf(field);
+  if (col < 0) return -1;
+  for (let i = 1; i < v.length; i++) if (String(v[i][col]) === String(value)) return i + 1;
   return -1;
 }
 
+function writeRow_(name, r, row) {
+  sheet_(name).getRange(r, 1, 1, row.length).setValues([row]);
+  RAW[name][r - 1] = row;
+}
+
 function upsert_(name, obj) {
-  const sh = sheet_(name);
-  const headers = headers_(sh);
-  const r = rowIndexWhere_(sh, 'id', obj.id);
+  const v = raw_(name);
+  const headers = v[0].map(String);
+  const r = rowIndexWhere_(name, 'id', obj.id);
   if (r > 0) {
-    const current = rowToObj_(name, headers, sh.getRange(r, 1, 1, headers.length).getValues()[0]);
-    sh.getRange(r, 1, 1, headers.length).setValues([toRow_(headers, Object.assign(current, obj))]);
+    const merged = Object.assign(rowToObj_(name, headers, v[r - 1]), obj);
+    writeRow_(name, r, toRow_(headers, merged));
   } else {
-    sh.appendRow(toRow_(headers, obj));
+    const row = toRow_(headers, obj);
+    sheet_(name).appendRow(row);
+    v.push(row);
   }
 }
 
 function appendRow_(name, obj) {
-  const sh = sheet_(name);
-  sh.appendRow(toRow_(headers_(sh), obj));
+  const row = toRow_(headers_(name), obj);
+  sheet_(name).appendRow(row);
+  if (RAW[name]) RAW[name].push(row);
 }
 
 function updateWhere_(name, field, value, obj) {
-  const sh = sheet_(name);
-  const headers = headers_(sh);
-  const r = rowIndexWhere_(sh, field, value);
-  if (r > 0) sh.getRange(r, 1, 1, headers.length).setValues([toRow_(headers, obj)]);
+  const r = rowIndexWhere_(name, field, value);
+  if (r > 0) writeRow_(name, r, toRow_(headers_(name), obj));
 }
 
 function deleteWhere_(name, field, value) {
+  const v = raw_(name);
+  const col = v[0].map(String).indexOf(field);
+  if (col < 0) return;
   const sh = sheet_(name);
-  const last = sh.getLastRow();
-  if (last < 2) return;
-  const col = headers_(sh).indexOf(field) + 1;
-  const vals = sh.getRange(2, col, last - 1, 1).getValues();
-  for (let i = vals.length - 1; i >= 0; i--) {
-    if (String(vals[i][0]) === String(value)) sh.deleteRow(i + 2);
+  for (let i = v.length - 1; i >= 1; i--) {
+    if (String(v[i][col]) === String(value)) { sh.deleteRow(i + 1); v.splice(i, 1); }
   }
 }
 
 function findById_(name, id) {
-  return readAll_(name).filter(function (r) { return r.id === id; })[0] || null;
+  const r = rowIndexWhere_(name, 'id', id);
+  return r > 0 ? rowToObj_(name, raw_(name)[0].map(String), raw_(name)[r - 1]) : null;
 }
 
 function getConfig_() {
@@ -792,8 +836,12 @@ function addDays_(iso, n) {
   return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd');
 }
 
+let USER_CACHE = null;
 function currentUser_() {
-  try { return Session.getActiveUser().getEmail() || ''; } catch (err) { return ''; }
+  if (USER_CACHE === null) {
+    try { USER_CACHE = Session.getActiveUser().getEmail() || ''; } catch (err) { USER_CACHE = ''; }
+  }
+  return USER_CACHE;
 }
 
 function log_(entidad, entidadId, proyectoId, accion, detalle) {

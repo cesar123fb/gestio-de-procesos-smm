@@ -256,8 +256,9 @@ function api(fn) {
     r[fn].apply(r, args);
   });
 }
-function mutate(fn, args, okMsg) {
-  document.body.classList.add('saving');
+function mutate(fn, args, okMsg, quiet) {
+  // quiet: la pantalla ya muestra el cambio (botones rápidos), así que no se bloquea mientras guarda
+  if (!quiet) document.body.classList.add('saving');
   return api.apply(null, [fn].concat(args)).then(function (data) {
     S.data = data; S.hist = null;
     document.body.classList.remove('saving');
@@ -271,6 +272,8 @@ function mutate(fn, args, okMsg) {
   });
 }
 function load() {
+  // Datos incrustados por el servidor al abrir la página: se muestra al instante
+  if (window.BOOT && window.BOOT.proyectos) { S.data = window.BOOT; window.BOOT = null; render(); return Promise.resolve(); }
   return api('getData').then(function (data) { S.data = data; render(); })
     .catch(function (e) { $('#view').innerHTML = '<div class="loading">No se pudo cargar: ' + esc(e.message) + '</div>'; });
 }
@@ -1480,10 +1483,10 @@ const ACTIONS = {
     const a = findAct(id);
     const nuevo = a.estado === 'Completada' ? 'Pendiente' : 'Completada';
     a.estado = nuevo; render(); // respuesta inmediata
-    mutate('setEstadoActividad', [id, nuevo], nuevo === 'Completada' ? 'Tarea terminada ✓' : 'Tarea reabierta');
+    mutate('setEstadoActividad', [id, nuevo], nuevo === 'Completada' ? 'Tarea terminada ✓' : 'Tarea reabierta', true);
   },
-  'start-act': function (id) { const a = findAct(id); a.estado = 'En curso'; render(); mutate('setEstadoActividad', [id, 'En curso'], 'Marcada como «trabajando»'); },
-  'done-act': function (id) { const a = findAct(id); a.estado = 'Completada'; render(); mutate('setEstadoActividad', [id, 'Completada'], '¡Tarea terminada! ✓'); },
+  'start-act': function (id) { const a = findAct(id); a.estado = 'En curso'; render(); mutate('setEstadoActividad', [id, 'En curso'], 'Marcada como «trabajando»', true); },
+  'done-act': function (id) { const a = findAct(id); a.estado = 'Completada'; render(); mutate('setEstadoActividad', [id, 'Completada'], '¡Tarea terminada! ✓', true); },
   'prob-act': function (id) { formProblema(findAct(id)); },
   'new-doc': function (id) { formDocumento(id || (S.view === 'proyecto' ? S.pid : ''), null); },
   'edit-doc': function (id) { const d = byId('documentos', id); formDocumento(d.proyectoId, d); },

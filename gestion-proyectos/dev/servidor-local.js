@@ -25,6 +25,7 @@ function makeSheet(name) {
     getLastRow: () => data.length,
     getLastColumn: () => data.reduce((m, r) => Math.max(m, r.length), 0),
     getRange: (row, col, nr = 1, nc = 1) => range(data, row, col, nr, nc),
+    getDataRange: () => range(data, 1, 1, Math.max(1, data.length), Math.max(1, sh.getLastColumn())),
     appendRow: (vals) => { data.push(vals.slice()); return sh; },
     deleteRow: (r) => { data.splice(r - 1, 1); },
     setFrozenRows: () => sh
@@ -113,7 +114,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8'), sandbox, { filename: 'Code.gs' });
 sandbox.setup();
-const call = (fn, ...args) => JSON.parse(JSON.stringify(vm.runInContext(fn, sandbox)(...args)));
+const call = (fn, ...args) => { vm.runInContext('resetCache_()', sandbox); return JSON.parse(JSON.stringify(vm.runInContext(fn, sandbox)(...args)) ?? null); };
 
 if (process.argv.includes('--demo')) require('./datos-demo')(call, sandbox);
 
@@ -140,6 +141,8 @@ function page() {
   let html = fs.readFileSync(path.join(ROOT, 'Index.html'), 'utf8');
   html = html.replace(/<\?!=\s*include\('(\w+)'\);\s*\?>/g, (_, n) =>
     (n === 'App' ? SHIM : '') + fs.readFileSync(path.join(ROOT, n + '.html'), 'utf8'));
+  call('resetCache_');
+  html = html.replace(/<\?!=\s*boot\s*\?>/, JSON.stringify(call('getData')).replace(/</g, '\\u003c'));
   return html;
 }
 
